@@ -1,6 +1,7 @@
 import { useLocation } from 'preact-iso';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHome } from '@fortawesome/free-solid-svg-icons/faHome';
+import { faMugSaucer } from '@fortawesome/free-solid-svg-icons/faMugSaucer';
 import { faList } from '@fortawesome/free-solid-svg-icons/faList';
 import { faTimeline } from '@fortawesome/free-solid-svg-icons/faTimeline';
 import { faBluetoothB } from '@fortawesome/free-brands-svg-icons/faBluetoothB';
@@ -65,6 +66,7 @@ const NAVIGATION_SECTIONS = [
     showDivider: true,
     items: [
       { label: 'Profiles', link: '/profiles', icon: faList },
+      { label: 'Beans', link: '/beans', icon: faMugSaucer },
       { label: 'Shot History', link: '/history', icon: faTimeline },
       { label: 'Shot Analyzer', link: '/analyzer', icon: faMagnifyingGlassChart, isNew: true },
       { label: 'Statistics', link: '/statistics', icon: faChartSimple, isNew: true },

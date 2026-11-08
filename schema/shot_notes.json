@@ -18,6 +18,14 @@
       "description": "Type or origin of coffee beans",
       "type": "string"
     },
+    "beanId": {
+      "description": "ID of the bean in /beans.json, set automatically from the active bean",
+      "type": "string"
+    },
+    "beanName": {
+      "description": "Name of the bean at the time the shot was pulled",
+      "type": "string"
+    },
     "doseIn": {
       "description": "Dose in grams",
       "type": "number",

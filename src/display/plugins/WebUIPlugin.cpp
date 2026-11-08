@@ -9,6 +9,7 @@
 #include <display/core/process/GrindProcess.h>
 #include <display/models/profile.h>
 #include <display/plugins/BLEScalePlugin.h>
+#include <display/plugins/BeansPlugin.h>
 #include <display/plugins/ShotHistoryPlugin.h>
 #include <display/util/PsramStlAllocator.h>
 #include <display/util/PsramWsBuffer.h>
@@ -536,6 +537,10 @@ void WebUIPlugin::handleWebSocketData(AsyncWebSocket *server, AsyncWebSocketClie
                 } else if (msgType.startsWith("req:history")) {
                     JsonDocument resp(&psramAllocator);
                     ShotHistory.handleRequest(doc, resp);
+                    client->text(toWsBuffer(resp));
+                } else if (msgType.startsWith("req:beans")) {
+                    JsonDocument resp(&psramAllocator);
+                    Beans.handleRequest(doc, resp);
                     client->text(toWsBuffer(resp));
                 } else if (msgType == "req:flush:start") {
                     handleFlushStart(client->id(), doc);

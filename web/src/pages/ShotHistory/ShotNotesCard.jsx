@@ -239,6 +239,20 @@ export default function ShotNotesCard({ shot, onNotesUpdate, onNotesLoaded }) {
           <div className='flex gap-1'>{renderStars(notes.rating, isEditing)}</div>
         </div>
 
+        {/* Bean from the Beans library (set automatically from the active bean) */}
+        {notes.beanName && (
+          <div className='form-control'>
+            <label className='mb-2 block text-sm font-medium'>Bean</label>
+            <a
+              href='/beans'
+              className='input input-bordered bg-base-200 flex w-full items-center'
+              data-testid='shot-bean'
+            >
+              {notes.beanName}
+            </a>
+          </div>
+        )}
+
         {/* Bean Type */}
         <div className='form-control'>
           <label className='mb-2 block text-sm font-medium'>Bean Type</label>
