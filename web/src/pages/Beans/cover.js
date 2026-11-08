@@ -12,7 +12,7 @@ const ASPECT_TOLERANCE = 0.12; // bags vary; up to +-12% is absorbed by a (barel
  * side is trimmed. Never grows beyond the box, so table/background is not pulled in. Pure, so it can be tested.
  */
 export function cropRect(imgW, imgH, bbox, aspect = COVER_ASPECT) {
-  const inset = bbox ? 0.012 : 0.04; // shave a hair so a loose box doesn't include the edge/background
+  const inset = bbox ? 0.05 : 0.04; // model boxes run loose; trimming 5% a side keeps background out (labels are never at the very edge)
   const src = bbox || { x: 0, y: 0, w: 1, h: 1 };
   let w = src.w * imgW * (1 - inset * 2);
   let h = src.h * imgH * (1 - inset * 2);
