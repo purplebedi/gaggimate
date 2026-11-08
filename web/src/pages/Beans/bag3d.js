@@ -91,9 +91,9 @@ function gradientAlpha() {
   c.height = 64;
   const x = c.getContext('2d');
   const g = x.createLinearGradient(0, 0, 0, 64);
-  g.addColorStop(0, '#000'); // far end of the reflection (top of the bag)
-  g.addColorStop(0.55, '#262626');
-  g.addColorStop(1, '#8a8a8a'); // where the bag meets the floor
+  g.addColorStop(0, '#000'); // far end of the reflection (top of the bag): invisible
+  g.addColorStop(0.55, '#000'); // only the part nearest the floor shows, and it fades out before the stage edge
+  g.addColorStop(1, '#808080'); // where the bag meets the floor
   x.fillStyle = g;
   x.fillRect(0, 0, 4, 64);
   return new CanvasTexture(c);
@@ -181,7 +181,7 @@ export function createBag({ aspect = 0.75, finish = 'matte', color = '#8a6a4a' }
     new MeshBasicMaterial({
       map: sharedShadow,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.4,
       depthWrite: false,
     }),
   );
@@ -194,7 +194,7 @@ export function createBag({ aspect = 0.75, finish = 'matte', color = '#8a6a4a' }
   const rm = () =>
     new MeshBasicMaterial({
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.28,
       alphaMap: sharedAlpha,
       depthWrite: false,
       color: 0x9a9a9a,
@@ -328,7 +328,7 @@ export function createCardBag(art, { pad = 2, color = '#8a6a4a' } = {}) {
     new MeshBasicMaterial({
       map: sharedShadow,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.4,
       depthWrite: false,
     }),
   );
@@ -342,7 +342,7 @@ export function createCardBag(art, { pad = 2, color = '#8a6a4a' } = {}) {
     new MeshBasicMaterial({
       map,
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.28,
       alphaMap: sharedAlpha,
       depthWrite: false,
       toneMapped: false,

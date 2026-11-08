@@ -120,7 +120,7 @@ export function Shelf({ beans, stats, activeId, initialId, onSetActive, onEdit, 
     const yaw = -sg * near * 0.97 + f * Math.PI + s.tiltY * centred * (1 - f);
     g.rotation.set(s.tiltX * centred * (1 - f), yaw, 0);
     g.scale.setScalar(1 + f * 0.1);
-    bag.setDim(clamp(near * 0.16 + far * 0.1, 0, 0.8));
+    bag.setDim(clamp(near * 0.1 + far * 0.07, 0, 0.5)); // gentle depth cue
     g.renderOrder = Math.round(100 - ad * 10);
   }, []);
 
@@ -268,8 +268,8 @@ export function Shelf({ beans, stats, activeId, initialId, onSetActive, onEdit, 
       camera.clearViewOffset();
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
-      // stand the bags on the shelf board: world y = 0 sits 75% of the way down the stage
-      const desired = 1 - 2 * 0.75;
+      // stand the bags on the floor line
+      const desired = 1 - 2 * 0.7; // world y = 0 sits 70% of the way down the stage
       const p0 = new Vector3(0, 0, 0).project(camera).y;
       const shift = ((p0 - desired) * h) / 2;
       camera.setViewOffset(w, h, 0, shift, w, h);
@@ -560,8 +560,7 @@ export function Shelf({ beans, stats, activeId, initialId, onSetActive, onEdit, 
         data-flipped={flipped ? 'true' : 'false'}
         data-active={beans.findIndex(b => b.id === activeId)}
       >
-        <div className='shelf-board' />
-        <div className='shelf-floorglow' />
+        <div className='shelf-ground' />
         <canvas ref={canvasRef} className='shelf-canvas' data-testid='shelf-canvas' />
         {glError && (
           <div className='text-base-100 absolute inset-0 z-10 grid place-items-center p-6 text-center'>
