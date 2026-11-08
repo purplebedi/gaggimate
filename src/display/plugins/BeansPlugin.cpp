@@ -3,10 +3,33 @@
 #include <SD_MMC.h>
 #include <display/core/Controller.h>
 #include <display/core/PluginManager.h>
+#include <display/plugins/ShotHistoryPlugin.h>
 #include <display/util/PsramAllocator.h>
 
 namespace {
 constexpr const char *BEANS_FILE = "/beans.json";
+
+// Bean ids are client-generated UUIDs; only allow filename-safe characters so an id can never escape /b/.
+bool validBeanId(const String &id) {
+    if (id.isEmpty() || id.length() > 40) {
+        return false;
+    }
+    for (size_t i = 0; i < id.length(); i++) {
+        char ch = id[i];
+        if (!isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// State carried across the chunks of one cover upload (lives in request->_tempObject, freed by the library).
+struct CoverUpload {
+    int status;
+    size_t total;
+    size_t received;
+    uint8_t data[];
+};
 
 String padId(String id, int length = 6) {
     while (id.length() < length) {
@@ -50,6 +73,96 @@ bool BeansPlugin::saveStore(const JsonDocument &store) {
     serializeJson(store, file);
     file.close();
     return true;
+}
+
+size_t BeansPlugin::photoFreeSpace() {
+    if (photoFs == &LittleFS) {
+        return LittleFS.totalBytes() - LittleFS.usedBytes();
+    }
+    return static_cast<size_t>(SD_MMC.totalBytes() - SD_MMC.usedBytes());
+}
+
+void BeansPlugin::removePhoto(const String &beanId) {
+    if (validBeanId(beanId)) {
+        photoFs->remove("/b/" + beanId + ".jpg");
+    }
+}
+
+void BeansPlugin::registerRoutes(AsyncWebServer &server, FS *fsForPhotos) {
+    photoFs = fsForPhotos;
+    // Filenames are keyed by bean id and the UI cache-busts with ?v=, so cache hard.
+    server.serveStatic("/api/beans/photo/", *photoFs, "/b/").setCacheControl("public, max-age=31536000, immutable");
+
+    server.on(
+        "/api/beans/photo", HTTP_POST,
+        [](AsyncWebServerRequest *request) {
+            auto *upload = static_cast<CoverUpload *>(request->_tempObject);
+            int status = upload ? upload->status : 400;
+            if (status == 200) {
+                request->send(200, "application/json", "{\"msg\":\"Ok\"}");
+            } else if (status == 413) {
+                request->send(413, "text/plain", "Photo too large");
+            } else if (status == 507) {
+                request->send(507, "text/plain", "Not enough free space");
+            } else {
+                request->send(400, "text/plain", "Invalid photo upload");
+            }
+        },
+        nullptr,
+        [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            if (index == 0) {
+                auto *upload = static_cast<CoverUpload *>(ps_malloc(sizeof(CoverUpload) + (total <= MAX_COVER_BYTES ? total : 0)));
+                if (!upload) {
+                    return;
+                }
+                upload->total = total;
+                upload->received = 0;
+                upload->status = 400;
+                if (total > MAX_COVER_BYTES) {
+                    upload->status = 413;
+                } else if (!validBeanId(request->arg("id")) || total < 4) {
+                    upload->status = 400;
+                } else if (photoFreeSpace() < total + MIN_FREE_SPACE_BYTES + 64 * 1024) {
+                    // Never eat into the space the shot history reserves for itself.
+                    upload->status = 507;
+                } else {
+                    upload->status = 0; // accepting
+                }
+                request->_tempObject = upload;
+            }
+            auto *upload = static_cast<CoverUpload *>(request->_tempObject);
+            if (!upload || upload->status != 0) {
+                return;
+            }
+            memcpy(upload->data + index, data, len);
+            upload->received += len;
+            if (upload->received < upload->total) {
+                return;
+            }
+            // Complete: must be a JPEG (SOI marker), then write atomically via a temp file.
+            if (upload->data[0] != 0xFF || upload->data[1] != 0xD8) {
+                upload->status = 400;
+                return;
+            }
+            String id = request->arg("id");
+            photoFs->mkdir("/b");
+            String tmp = "/b/" + id + ".tmp";
+            File file = photoFs->open(tmp, FILE_WRITE);
+            if (!file) {
+                upload->status = 400;
+                return;
+            }
+            size_t written = file.write(upload->data, upload->total);
+            file.close();
+            if (written != upload->total) {
+                photoFs->remove(tmp);
+                upload->status = 507;
+                return;
+            }
+            String finalPath = "/b/" + id + ".jpg";
+            photoFs->remove(finalPath);
+            upload->status = photoFs->rename(tmp, finalPath) ? 200 : 400;
+        });
 }
 
 void BeansPlugin::handleRequest(JsonDocument &request, JsonDocument &response) {
@@ -102,6 +215,42 @@ void BeansPlugin::handleRequest(JsonDocument &request, JsonDocument &response) {
             }
             dir.close();
         }
+    } else if (type == "req:beans:photo:delete") {
+        removePhoto(request["id"].as<String>());
+        response["msg"] = "Ok";
+    } else if (type == "req:beans:stats") {
+        // One directory sweep for every bean's shot count and ratings, so the shelf can show/filter by
+        // rating without N separate req:beans:shots sweeps. n = tagged shots, r = rated shots, s = sum of stars.
+        JsonObject stats = response["stats"].to<JsonObject>();
+        File dir = fs->open("/h");
+        if (dir && dir.isDirectory()) {
+            File entry;
+            while ((entry = dir.openNextFile())) {
+                String name = String(entry.name());
+                if (!name.endsWith(".json")) {
+                    entry.close();
+                    continue;
+                }
+                JsonDocument notes(&psramAllocator);
+                DeserializationError err = deserializeJson(notes, entry);
+                entry.close();
+                if (err) {
+                    continue;
+                }
+                String beanId = notes["beanId"] | "";
+                if (beanId.isEmpty()) {
+                    continue;
+                }
+                JsonObject s = stats[beanId].is<JsonObject>() ? stats[beanId].as<JsonObject>() : stats[beanId].to<JsonObject>();
+                s["n"] = (s["n"] | 0) + 1;
+                int rating = notes["rating"] | 0;
+                if (rating > 0) {
+                    s["r"] = (s["r"] | 0) + 1;
+                    s["s"] = (s["s"] | 0) + rating;
+                }
+            }
+            dir.close();
+        }
     } else if (type == "req:beans:save") {
         String id = request["bean"]["id"].as<String>();
         String name = request["bean"]["name"].as<String>();
@@ -140,6 +289,7 @@ void BeansPlugin::handleRequest(JsonDocument &request, JsonDocument &response) {
         if (store["activeBeanId"].as<String>() == id) {
             store["activeBeanId"] = "";
         }
+        removePhoto(id);
         if (saveStore(store)) {
             response["msg"] = "Ok";
         } else {

@@ -4,7 +4,15 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus } from '@fortawesome/free-solid-svg-icons/faPlus';
 import { faGear } from '@fortawesome/free-solid-svg-icons/faGear';
 import { ApiServiceContext, machine } from '../../services/ApiService.js';
-import { deleteBean, listBeans, saveBean, setActiveBean } from '../../services/BeanService.js';
+import {
+  coverUrl,
+  deleteBean,
+  getBeanStats,
+  listBeans,
+  saveBean,
+  setActiveBean,
+  uploadCover,
+} from '../../services/BeanService.js';
 import PageLayout from '../../components/PageLayout.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
 import Card from '../../components/Card.jsx';
@@ -12,10 +20,30 @@ import { Spinner } from '../../components/Spinner.jsx';
 import { AddBean } from './AddBean.jsx';
 import { BeanForm } from './BeanForm.jsx';
 import { BeanDetail } from './BeanDetail.jsx';
+import { CoverEditor } from './CoverEditor.jsx';
 import { ScannerSettings } from './ScannerSettings.jsx';
-import { beanTitle, daysOffRoast } from './beanUtils.js';
+import { Shelf } from './Shelf.jsx';
+import { ShelfFilters } from './ShelfFilters.jsx';
+import {
+  EMPTY_FILTERS,
+  beanPalette,
+  beanTitle,
+  daysOffRoast,
+  filterBeans,
+  sortBeans,
+  statsFor,
+} from './beanUtils.js';
 
 const connected = computed(() => machine.value.connected);
+const VIEW_KEY = 'gaggimate.beansView';
+
+function readView() {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'shelf';
+  } catch {
+    return 'shelf';
+  }
+}
 
 function Modal({ children, onClose, label }) {
   useEffect(() => {
@@ -37,7 +65,11 @@ export function Beans() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modal, setModal] = useState(null); // {type:'add'|'edit'|'detail'|'scanner', bean?}
-  const [query, setQuery] = useState('');
+  const [stats, setStats] = useState({});
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [sort, setSort] = useState('newest');
+  const [view, setViewState] = useState(readView);
+  const [notice, setNotice] = useState('');
   const [photos, setPhotos] = useState([]); // [{file, url}] for the add-bean flow
   const fileRef = useRef(null);
 
@@ -72,7 +104,12 @@ export function Beans() {
   const load = useCallback(async () => {
     try {
       setError('');
-      setState(await listBeans(apiService));
+      const [library, shotStats] = await Promise.all([
+        listBeans(apiService),
+        getBeanStats(apiService),
+      ]);
+      setState(library);
+      setStats(shotStats);
     } catch (err) {
       setError(err.message || 'Failed to load beans');
     } finally {
@@ -98,10 +135,20 @@ export function Beans() {
     clearPhotos();
     setModal(null);
   };
-  const needle = query.trim().toLowerCase();
-  const visible = state.beans
-    .filter(b => !needle || `${b.name} ${b.roaster} ${b.origin}`.toLowerCase().includes(needle))
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const setView = v => {
+    setViewState(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // private mode etc: the view just won't be remembered
+    }
+  };
+  const visible = sortBeans(
+    filterBeans(state.beans, filters, { stats, activeId: state.activeBeanId }),
+    sort,
+    stats,
+  );
+  const hasRatings = Object.values(stats).some(s => s.r > 0);
   const current = modal?.bean && state.beans.find(b => b.id === modal.bean.id);
 
   return (
@@ -131,6 +178,14 @@ export function Beans() {
           {error}
         </div>
       )}
+      {notice && (
+        <div className='alert alert-warning' role='status' data-testid='notice'>
+          <span>{notice}</span>
+          <button className='btn btn-ghost btn-xs' onClick={() => setNotice('')}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {!connected.value ? (
         <Card>
@@ -155,50 +210,99 @@ export function Beans() {
         </Card>
       ) : (
         <>
-          {state.beans.length > 6 && (
-            <input
-              className='input input-bordered w-full max-w-sm'
-              placeholder='Search beans'
-              aria-label='Search beans'
-              value={query}
-              onInput={e => setQuery(e.currentTarget.value)}
-            />
-          )}
-          <div
-            className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3'
-            data-testid='bean-grid'
-          >
-            {visible.map(bean => {
-              const age = daysOffRoast(bean.roastDate);
-              const active = bean.id === state.activeBeanId;
-              return (
+          <ShelfFilters
+            beans={state.beans}
+            filters={filters}
+            setFilters={setFilters}
+            sort={sort}
+            setSort={setSort}
+            hasRatings={hasRatings}
+            shown={visible.length}
+            total={state.beans.length}
+            view={view}
+            setView={setView}
+          />
+
+          {visible.length === 0 ? (
+            <Card>
+              <div
+                className='flex flex-col items-center gap-3 py-8 text-center'
+                data-testid='no-matches'
+              >
+                <div className='font-semibold'>No beans match these filters</div>
                 <button
-                  key={bean.id}
-                  className={`card bg-base-100 border-2 text-left shadow-xl transition hover:shadow-2xl ${active ? 'border-success' : 'border-transparent'}`}
-                  onClick={() => setModal({ type: 'detail', bean })}
-                  data-testid='bean-card'
+                  className='btn btn-sm btn-outline'
+                  onClick={() => setFilters(EMPTY_FILTERS)}
                 >
-                  <div className='card-body gap-1 p-4'>
-                    <div className='flex items-start justify-between gap-2'>
-                      <h2 className='card-title text-base'>{beanTitle(bean)}</h2>
-                      {active && <span className='badge badge-success badge-sm'>Active</span>}
-                    </div>
-                    <div className='text-base-content/70 text-sm'>
-                      {[bean.origin, bean.process].filter(Boolean).join(' · ') || '—'}
-                    </div>
-                    <div className='text-base-content/60 text-xs'>
-                      {[bean.roastLevel, age !== null && `${age}d off roast`]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </div>
-                  </div>
+                  Clear filters
                 </button>
-              );
-            })}
-            {visible.length === 0 && (
-              <div className='text-base-content/60 col-span-full text-sm'>No matching beans.</div>
-            )}
-          </div>
+              </div>
+            </Card>
+          ) : view === 'shelf' ? (
+            <Shelf
+              beans={visible}
+              stats={stats}
+              activeId={state.activeBeanId}
+              initialId={state.activeBeanId}
+              onSetActive={bean => run(() => setActiveBean(apiService, bean.id))}
+              onOpen={bean => setModal({ type: 'detail', bean })}
+              onEdit={bean => setModal({ type: 'edit', bean })}
+            />
+          ) : (
+            <div
+              className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3'
+              data-testid='bean-grid'
+            >
+              {visible.map(bean => {
+                const age = daysOffRoast(bean.roastDate);
+                const active = bean.id === state.activeBeanId;
+                const avg = statsFor(stats, bean.id).average;
+                const url = coverUrl(bean);
+                return (
+                  <button
+                    key={bean.id}
+                    className={`card bg-base-100 border-2 text-left shadow-xl transition hover:shadow-2xl ${active ? 'border-success' : 'border-transparent'}`}
+                    onClick={() => setModal({ type: 'detail', bean })}
+                    data-testid='bean-card'
+                  >
+                    <div className='card-body flex-row items-center gap-3 p-4'>
+                      <div
+                        className='h-16 w-12 shrink-0 overflow-hidden rounded-md shadow'
+                        style={{ background: beanPalette(bean).base }}
+                      >
+                        {url && (
+                          <img
+                            src={url}
+                            alt=''
+                            className='h-full w-full object-cover'
+                            loading='lazy'
+                          />
+                        )}
+                      </div>
+                      <div className='min-w-0 flex-1'>
+                        <div className='flex items-start justify-between gap-2'>
+                          <h2 className='card-title text-base'>{beanTitle(bean)}</h2>
+                          {active && <span className='badge badge-success badge-sm'>Active</span>}
+                        </div>
+                        <div className='text-base-content/70 text-sm'>
+                          {[bean.origin, bean.process].filter(Boolean).join(' · ') || '—'}
+                        </div>
+                        <div className='text-base-content/60 text-xs'>
+                          {[
+                            bean.roastLevel,
+                            age !== null && `${age}d off roast`,
+                            avg !== null && `★ ${avg.toFixed(1)}`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
 
@@ -220,8 +324,17 @@ export function Beans() {
             onPickPhoto={() => fileRef.current?.click()}
             onRemovePhoto={removePhoto}
             onCancel={close}
-            onSave={async bean => {
-              const saved = await saveBean(apiService, bean);
+            onSave={async (bean, cover) => {
+              const record = { ...bean };
+              if (cover) {
+                try {
+                  await uploadCover(record.id, cover.blob);
+                  Object.assign(record, { hasPhoto: true, photoV: Date.now(), color: cover.color });
+                } catch (err) {
+                  setNotice(`Bean saved without its cover photo: ${err.message}.`);
+                }
+              }
+              const saved = await saveBean(apiService, record);
               if (!state.activeBeanId) await setActiveBean(apiService, saved.id);
               await load();
               close();
@@ -232,13 +345,25 @@ export function Beans() {
       {modal?.type === 'edit' && current && (
         <Modal onClose={close} label='Edit bean'>
           <h2 className='mb-4 text-xl font-bold'>Edit bean</h2>
+          <div className='mb-4'>
+            <CoverEditor
+              apiService={apiService}
+              bean={current}
+              onChange={async partial => {
+                await saveBean(apiService, { ...current, ...partial });
+                await load();
+              }}
+            />
+          </div>
           <BeanForm
             initial={current}
             onCancel={() => setModal({ type: 'detail', bean: current })}
-            onSave={async bean => {
-              await saveBean(apiService, bean);
+            onSave={async form => {
+              // the cover editor saves its own fields immediately; never overwrite them with the form's stale copy
+              const { hasPhoto: _h, photoV: _v, color: _c, ...fields } = form;
+              await saveBean(apiService, { ...current, ...fields });
               await load();
-              setModal({ type: 'detail', bean });
+              setModal({ type: 'detail', bean: current });
             }}
           />
         </Modal>

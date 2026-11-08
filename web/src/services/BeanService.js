@@ -116,3 +116,34 @@ export async function scanPhotos(scanner, files) {
 }
 
 export const scanPhoto = (scanner, file) => scanPhotos(scanner, [file]);
+
+/** Per-bean shot counts/ratings in one sweep: { [beanId]: { n, r, s } }. Empty on older firmware. */
+export async function getBeanStats(apiService) {
+  try {
+    const response = await apiService.request({ tp: 'req:beans:stats' });
+    return response.stats || {};
+  } catch {
+    return {};
+  }
+}
+
+export async function deleteCover(apiService, id) {
+  const response = await apiService.request({ tp: 'req:beans:photo:delete', id });
+  if (response.error) throw new Error(response.error);
+}
+
+/** Upload the small cropped cover JPEG for a bean. Throws with a readable message on failure. */
+export async function uploadCover(id, blob) {
+  const response = await fetch(`/api/beans/photo?id=${encodeURIComponent(id)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/jpeg' },
+    body: blob,
+  });
+  if (response.status === 507) throw new Error('the machine is low on storage');
+  if (response.status === 413) throw new Error('the photo is too large');
+  if (!response.ok) throw new Error(`upload failed (HTTP ${response.status})`);
+}
+
+export function coverUrl(bean) {
+  return bean?.hasPhoto ? `/api/beans/photo/${bean.id}.jpg?v=${bean.photoV || 0}` : '';
+}

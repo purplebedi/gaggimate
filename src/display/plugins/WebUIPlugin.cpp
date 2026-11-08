@@ -349,6 +349,7 @@ void WebUIPlugin::setupServer() {
         fs = &SD_MMC;
     }
     server.serveStatic("/api/history/", *fs, "/h/").setCacheControl("no-store");
+    Beans.registerRoutes(server, fs);
     server.on("/api/history/index.bin", HTTP_GET, [this, fs](AsyncWebServerRequest *request) {
         // Serve the binary index file directly
         if (fs->exists("/h/index.bin")) {
