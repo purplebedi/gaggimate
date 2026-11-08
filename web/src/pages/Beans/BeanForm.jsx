@@ -1,8 +1,5 @@
-import { useRef, useState } from 'preact/hooks';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCamera } from '@fortawesome/free-solid-svg-icons/faCamera';
-import { scanPhoto } from '../../services/BeanService.js';
-import { EMPTY_BEAN, ROAST_LEVELS, applyScan } from './beanUtils.js';
+import { useState } from 'preact/hooks';
+import { EMPTY_BEAN, ROAST_LEVELS } from './beanUtils.js';
 
 const TEXT_FIELDS = [
   ['roaster', 'Roaster'],
@@ -12,34 +9,12 @@ const TEXT_FIELDS = [
   ['varietal', 'Varietal'],
 ];
 
-export function BeanForm({ initial, scanner, onSave, onCancel }) {
+export function BeanForm({ initial, notice, onSave, onCancel, cancelLabel = 'Cancel' }) {
   const [bean, setBean] = useState({ ...EMPTY_BEAN, ...initial });
-  const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState('');
-  const [scanned, setScanned] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const fileRef = useRef(null);
-  const canScan = !!scanner?.endpoint;
 
   const set = (key, value) => setBean(prev => ({ ...prev, [key]: value }));
-
-  const onPhoto = async e => {
-    const file = e.currentTarget.files?.[0];
-    e.currentTarget.value = '';
-    if (!file) return;
-    setScanning(true);
-    setScanError('');
-    try {
-      const result = await scanPhoto(scanner, file);
-      setBean(prev => applyScan(prev, result));
-      setScanned(true);
-    } catch (err) {
-      setScanError(err.message || 'Scan failed');
-    } finally {
-      setScanning(false);
-    }
-  };
 
   const submit = async e => {
     e.preventDefault();
@@ -56,39 +31,7 @@ export function BeanForm({ initial, scanner, onSave, onCancel }) {
 
   return (
     <form onSubmit={submit} className='flex flex-col gap-4' data-testid='bean-form'>
-      <div className='flex flex-col gap-2'>
-        <input
-          ref={fileRef}
-          type='file'
-          accept='image/*'
-          capture='environment'
-          className='hidden'
-          data-testid='photo-input'
-          onChange={onPhoto}
-        />
-        <button
-          type='button'
-          className='btn btn-outline'
-          disabled={!canScan || scanning}
-          onClick={() => fileRef.current?.click()}
-        >
-          <FontAwesomeIcon icon={faCamera} />
-          {scanning ? 'Reading bag…' : 'Scan bag with camera'}
-        </button>
-        {!canScan && (
-          <span className='text-base-content/60 text-xs'>
-            Set up the scanner (button above the list) to fill details from a photo.
-          </span>
-        )}
-        {scanError && (
-          <div className='text-error text-sm' role='alert'>
-            {scanError}
-          </div>
-        )}
-        {scanned && (
-          <div className='text-success text-sm'>Filled from photo — check the details below.</div>
-        )}
-      </div>
+      {notice}
 
       <label className='form-control'>
         <span className='mb-1 block text-sm font-medium'>Name *</span>
@@ -158,7 +101,7 @@ export function BeanForm({ initial, scanner, onSave, onCancel }) {
       )}
       <div className='flex justify-end gap-2'>
         <button type='button' className='btn btn-ghost' onClick={onCancel} disabled={saving}>
-          Cancel
+          {cancelLabel}
         </button>
         <button type='submit' className='btn btn-primary' disabled={saving || !bean.name.trim()}>
           {saving ? 'Saving…' : 'Save bean'}

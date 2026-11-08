@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useState } from 'preact/hooks';
+import { useCallback, useContext, useEffect, useRef, useState } from 'preact/hooks';
 import { computed } from '@preact/signals';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus } from '@fortawesome/free-solid-svg-icons/faPlus';
@@ -9,6 +9,7 @@ import PageLayout from '../../components/PageLayout.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
 import Card from '../../components/Card.jsx';
 import { Spinner } from '../../components/Spinner.jsx';
+import { AddBean } from './AddBean.jsx';
 import { BeanForm } from './BeanForm.jsx';
 import { BeanDetail } from './BeanDetail.jsx';
 import { ScannerSettings } from './ScannerSettings.jsx';
@@ -37,6 +38,36 @@ export function Beans() {
   const [error, setError] = useState('');
   const [modal, setModal] = useState(null); // {type:'add'|'edit'|'detail'|'scanner', bean?}
   const [query, setQuery] = useState('');
+  const [photos, setPhotos] = useState([]); // [{file, url}] for the add-bean flow
+  const fileRef = useRef(null);
+
+  const clearPhotos = useCallback(() => {
+    setPhotos(prev => {
+      prev.forEach(p => URL.revokeObjectURL(p.url));
+      return [];
+    });
+  }, []);
+
+  const onFiles = e => {
+    const files = Array.from(e.currentTarget.files || []);
+    e.currentTarget.value = '';
+    setPhotos(prev =>
+      [...prev, ...files.map(file => ({ file, url: URL.createObjectURL(file) }))].slice(0, 4),
+    );
+  };
+
+  const removePhoto = i =>
+    setPhotos(prev => {
+      URL.revokeObjectURL(prev[i]?.url);
+      return prev.filter((_, idx) => idx !== i);
+    });
+
+  // Must run inside the tap handler: browsers only open the camera from a user gesture.
+  const startAdd = () => {
+    clearPhotos();
+    setModal({ type: 'add' });
+    if (state.scanner?.endpoint) fileRef.current?.click();
+  };
 
   const load = useCallback(async () => {
     try {
@@ -63,7 +94,10 @@ export function Beans() {
     }
   };
 
-  const close = () => setModal(null);
+  const close = () => {
+    clearPhotos();
+    setModal(null);
+  };
   const needle = query.trim().toLowerCase();
   const visible = state.beans
     .filter(b => !needle || `${b.name} ${b.roaster} ${b.origin}`.toLowerCase().includes(needle))
@@ -84,7 +118,7 @@ export function Beans() {
               <FontAwesomeIcon icon={faGear} />
               Scanner
             </button>
-            <button className='btn btn-primary btn-sm' onClick={() => setModal({ type: 'add' })}>
+            <button className='btn btn-primary btn-sm' onClick={startAdd}>
               <FontAwesomeIcon icon={faPlus} />
               Add bean
             </button>
@@ -114,7 +148,7 @@ export function Beans() {
               Add the bag you are using, set it as active, and every shot you pull will be tagged
               with it so you can see how each coffee rates.
             </p>
-            <button className='btn btn-primary' onClick={() => setModal({ type: 'add' })}>
+            <button className='btn btn-primary' onClick={startAdd}>
               Add your first bean
             </button>
           </div>
@@ -168,11 +202,23 @@ export function Beans() {
         </>
       )}
 
+      <input
+        ref={fileRef}
+        type='file'
+        accept='image/*'
+        capture='environment'
+        multiple
+        className='hidden'
+        data-testid='photo-input'
+        onChange={onFiles}
+      />
       {modal?.type === 'add' && (
         <Modal onClose={close} label='Add bean'>
-          <h2 className='mb-4 text-xl font-bold'>Add bean</h2>
-          <BeanForm
+          <AddBean
             scanner={state.scanner}
+            photos={photos}
+            onPickPhoto={() => fileRef.current?.click()}
+            onRemovePhoto={removePhoto}
             onCancel={close}
             onSave={async bean => {
               const saved = await saveBean(apiService, bean);
@@ -188,7 +234,6 @@ export function Beans() {
           <h2 className='mb-4 text-xl font-bold'>Edit bean</h2>
           <BeanForm
             initial={current}
-            scanner={state.scanner}
             onCancel={() => setModal({ type: 'detail', bean: current })}
             onSave={async bean => {
               await saveBean(apiService, bean);

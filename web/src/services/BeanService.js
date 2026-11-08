@@ -86,18 +86,26 @@ export function resizePhoto(file, maxDimension = 1568, quality = 0.85) {
   });
 }
 
-export async function scanPhoto(scanner, file) {
+export async function scanPhotos(scanner, files) {
   if (!scanner?.endpoint) {
     throw new Error('Scanner is not configured');
   }
-  const blob = await resizePhoto(file);
+  if (!files.length) {
+    throw new Error('Take at least one photo');
+  }
+  const blobs = await Promise.all(files.map(file => resizePhoto(file)));
   const body = new FormData();
-  body.append('image', blob, 'bean-bag.jpg');
+  blobs.forEach((blob, i) => body.append('image', blob, `bean-bag-${i + 1}.jpg`));
   const headers = {};
   if (scanner.token) {
     headers['Authorization'] = `Bearer ${scanner.token}`;
   }
-  const response = await fetch(scanner.endpoint, { method: 'POST', headers, body });
+  let response;
+  try {
+    response = await fetch(scanner.endpoint, { method: 'POST', headers, body });
+  } catch {
+    throw new Error('Could not reach the scanner - check your internet connection');
+  }
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
       throw new Error('Scanner rejected the token - check scanner settings');
@@ -106,3 +114,5 @@ export async function scanPhoto(scanner, file) {
   }
   return await response.json();
 }
+
+export const scanPhoto = (scanner, file) => scanPhotos(scanner, [file]);
