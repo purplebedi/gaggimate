@@ -227,3 +227,27 @@ export async function loadArtViews(frontUrl, backUrl) {
   ]);
   return { front, back };
 }
+
+const THUMB_H = 160; // 2x the on-screen height, so it stays sharp on retina screens
+const thumbCache = new Map(); // art url -> Promise<dataURL>
+
+/**
+ * A small data-URL thumbnail of an AI illustration, trimmed to the bag (reuses the shelf's cached full-size load).
+ * Keeps list pages light: the 1024px illustration is decoded once and only the tiny result is shown in each card.
+ */
+export function loadArtThumb(url) {
+  if (!thumbCache.has(url)) {
+    const p = cachedArt(url).then(({ canvas }) => {
+      const scale = Math.min(1, THUMB_H / canvas.height);
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(canvas.width * scale));
+      c.height = Math.max(1, Math.round(canvas.height * scale));
+      c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+      return c.toDataURL('image/png');
+    });
+    p.catch(() => thumbCache.delete(url));
+    thumbCache.set(url, p);
+    while (thumbCache.size > 200) thumbCache.delete(thumbCache.keys().next().value);
+  }
+  return thumbCache.get(url);
+}

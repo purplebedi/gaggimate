@@ -5,7 +5,6 @@ import { faPlus } from '@fortawesome/free-solid-svg-icons/faPlus';
 import { faGear } from '@fortawesome/free-solid-svg-icons/faGear';
 import { ApiServiceContext, machine } from '../../services/ApiService.js';
 import {
-  bagTextureUrl,
   deleteBean,
   getBeanStats,
   listBeans,
@@ -21,12 +20,12 @@ import { AddBean } from './AddBean.jsx';
 import { BeanForm } from './BeanForm.jsx';
 import { BeanDetail } from './BeanDetail.jsx';
 import { BagEditor } from './BagEditor.jsx';
+import { BeanThumb } from './BeanThumb.jsx';
 import { ScannerSettings } from './ScannerSettings.jsx';
 import { Shelf, webglSupported } from './Shelf.jsx';
 import { ShelfFilters } from './ShelfFilters.jsx';
 import {
   EMPTY_FILTERS,
-  beanPalette,
   beanTitle,
   daysOffRoast,
   filterBeans,
@@ -260,7 +259,6 @@ export function Beans() {
                 const age = daysOffRoast(bean.roastDate);
                 const active = bean.id === state.activeBeanId;
                 const avg = statsFor(stats, bean.id).average;
-                const url = bagTextureUrl(bean, 'front');
                 return (
                   <button
                     key={bean.id}
@@ -269,19 +267,7 @@ export function Beans() {
                     data-testid='bean-card'
                   >
                     <div className='card-body flex-row items-center gap-3 p-4'>
-                      <div
-                        className='h-16 w-12 shrink-0 overflow-hidden rounded-md shadow'
-                        style={{ background: beanPalette(bean).base }}
-                      >
-                        {url && (
-                          <img
-                            src={url}
-                            alt=''
-                            className='h-full w-full object-cover'
-                            loading='lazy'
-                          />
-                        )}
-                      </div>
+                      <BeanThumb bean={bean} />
                       <div className='min-w-0 flex-1'>
                         <div className='flex items-start justify-between gap-2'>
                           <h2 className='card-title text-base'>{beanTitle(bean)}</h2>
