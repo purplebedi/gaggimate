@@ -71,6 +71,9 @@ class AsyncWebServer;
 class AsyncWebServerRequest {
   public:
     AsyncWebServerRequest(int fd, AsyncWebServer *server) : _fd(fd), _server(server) {}
+    ~AsyncWebServerRequest() { free(_tempObject); }
+    AsyncWebServerRequest(const AsyncWebServerRequest &) = delete;
+    AsyncWebServerRequest &operator=(const AsyncWebServerRequest &) = delete;
 
     const String &url() const { return _url; }
     int method() const { return _method; }
@@ -92,6 +95,8 @@ class AsyncWebServerRequest {
     void redirect(const String &url);
 
     // Populated by the server before dispatch.
+    // Scratch pointer the real library frees with free() when the request ends (used by body handlers).
+    void *_tempObject = nullptr;
     String _url;
     int _method = HTTP_GET;
     std::map<std::string, std::string> _args;
@@ -101,6 +106,9 @@ class AsyncWebServerRequest {
 };
 
 using ArRequestHandlerFunction = std::function<void(AsyncWebServerRequest *)>;
+// Multipart upload callback (unused by the sim; accepted so firmware code compiles) and raw-body chunk callback.
+using ArUploadHandlerFunction = std::function<void(AsyncWebServerRequest *, const String &, size_t, uint8_t *, size_t, bool)>;
+using ArBodyHandlerFunction = std::function<void(AsyncWebServerRequest *, uint8_t *, size_t, size_t, size_t)>;
 
 // Matches the real library's queued-message payload type.
 using AsyncWebSocketSharedBuffer = std::shared_ptr<std::vector<uint8_t>>;
@@ -155,6 +163,9 @@ class AsyncWebServer {
     void on(const char *uri, WebRequestMethod method, ArRequestHandlerFunction handler) {
         _routes.push_back({(int)method, uri, std::move(handler)});
     }
+    void on(const char *uri, WebRequestMethod method, ArRequestHandlerFunction handler, ArUploadHandlerFunction, ArBodyHandlerFunction onBody) {
+        _routes.push_back({(int)method, uri, std::move(handler), std::move(onBody)});
+    }
     void onNotFound(ArRequestHandlerFunction handler) { _notFound = std::move(handler); }
     void addHandler(AsyncWebSocket *ws) { _ws = ws; }
     AsyncStaticWebHandler &serveStatic(const char *uri, FS &fs, const char *path);
@@ -169,6 +180,7 @@ class AsyncWebServer {
         int method;
         std::string uri;
         ArRequestHandlerFunction handler;
+        ArBodyHandlerFunction bodyHandler = nullptr;
     };
     struct StaticRoute {
         std::string uri;

@@ -42,6 +42,7 @@ export function ShelfFilters({
   total,
   view,
   setView,
+  canShelf = true,
 }) {
   const [open, setOpen] = useState(false);
   const set = patch => setFilters(prev => ({ ...prev, ...patch }));
@@ -94,17 +95,19 @@ export function ShelfFilters({
           {[
             ['shelf', 'Shelf'],
             ['list', 'List'],
-          ].map(([k, label]) => (
-            <button
-              key={k}
-              type='button'
-              aria-pressed={view === k}
-              className={`btn btn-sm join-item ${view === k ? 'btn-neutral' : 'btn-outline border-base-content/20'}`}
-              onClick={() => setView(k)}
-            >
-              {label}
-            </button>
-          ))}
+          ]
+            .filter(([k]) => canShelf || k !== 'shelf')
+            .map(([k, label]) => (
+              <button
+                key={k}
+                type='button'
+                aria-pressed={view === k}
+                className={`btn btn-sm join-item ${view === k ? 'btn-neutral' : 'btn-outline border-base-content/20'}`}
+                onClick={() => setView(k)}
+              >
+                {label}
+              </button>
+            ))}
         </div>
       </div>
 

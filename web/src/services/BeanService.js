@@ -108,7 +108,9 @@ export async function scanPhotos(scanner, files) {
   }
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new Error('Scanner rejected the token - check scanner settings');
+      throw new Error(
+        'Scanner rejected the token - open Scanner settings and use "Test connection"',
+      );
     }
     throw new Error(`Scanner request failed (HTTP ${response.status})`);
   }
@@ -127,14 +129,14 @@ export async function getBeanStats(apiService) {
   }
 }
 
-export async function deleteCover(apiService, id) {
+export async function deleteBagTextures(apiService, id) {
   const response = await apiService.request({ tp: 'req:beans:photo:delete', id });
   if (response.error) throw new Error(response.error);
 }
 
-/** Upload the small cropped cover JPEG for a bean. Throws with a readable message on failure. */
-export async function uploadCover(id, blob) {
-  const response = await fetch(`/api/beans/photo?id=${encodeURIComponent(id)}`, {
+/** Upload one flattened bag texture (side = 'front' | 'back') as a small JPEG. Throws a readable message on failure. */
+export async function uploadBagTexture(id, blob, side = 'front') {
+  const response = await fetch(`/api/beans/photo?id=${encodeURIComponent(id)}&side=${side}`, {
     method: 'POST',
     headers: { 'Content-Type': 'image/jpeg' },
     body: blob,
@@ -144,6 +146,9 @@ export async function uploadCover(id, blob) {
   if (!response.ok) throw new Error(`upload failed (HTTP ${response.status})`);
 }
 
-export function coverUrl(bean) {
-  return bean?.hasPhoto ? `/api/beans/photo/${bean.id}.jpg?v=${bean.photoV || 0}` : '';
+/** URL of a bean's front/back texture, or '' when it has none. */
+export function bagTextureUrl(bean, side = 'front') {
+  const has = side === 'back' ? bean?.hasBack : bean?.hasPhoto;
+  if (!has) return '';
+  return `/api/beans/photo/${bean.id}${side === 'back' ? '-b' : ''}.jpg?v=${bean.photoV || 0}`;
 }

@@ -63,8 +63,6 @@ test('beanTitle', () => {
   assert.equal(beanTitle({}), 'Untitled bean');
 });
 
-import { cropRect, COVER_ASPECT } from './cover.js';
-
 const beans = [
   {
     id: 'a',
@@ -150,30 +148,217 @@ test('palette: always valid hex, light text on dark beans', () => {
   assert.match(beanPalette({ name: 'x' }).base, /^#[0-9a-f]{6}$/, 'fallback colour');
 });
 
-test('cropRect stays tight to the bag, near the cover aspect, inside the image', () => {
-  for (const [w, h, bbox] of [
-    [1600, 1200, { x: 0.316, y: 0.117, w: 0.368, h: 0.767 }], // typical bag on a table
-    [3000, 4000, { x: 0, y: 0, w: 1, h: 1 }],
-    [1000, 1000, null],
-    [4000, 3000, { x: 0.8, y: 0.5, w: 0.2, h: 0.5 }],
-    [1200, 1600, { x: 0.1, y: 0.1, w: 0.8, h: 0.3 }], // very wide box -> trimmed
-  ]) {
-    const r = cropRect(w, h, bbox);
-    const ar = r.sw / r.sh;
-    assert.ok(ar >= COVER_ASPECT * 0.879 && ar <= COVER_ASPECT * 1.121, `aspect ${ar}`);
-    assert.ok(
-      r.sx >= -0.5 && r.sy >= -0.5 && r.sx + r.sw <= w + 0.5 && r.sy + r.sh <= h + 0.5,
-      `inside ${JSON.stringify(r)}`,
-    );
-    if (bbox) {
-      assert.ok(
-        r.sx >= bbox.x * w - 0.5 && r.sx + r.sw <= (bbox.x + bbox.w) * w + 0.5,
-        'never wider than the bag box',
-      );
-      assert.ok(
-        r.sy >= bbox.y * h - 0.5 && r.sy + r.sh <= (bbox.y + bbox.h) * h + 0.5,
-        'never taller than the bag box',
-      );
+// ---------------------------------------------------------------- 3D bag geometry + flattening
+import { applyHomography, homography, quadAspect, warp } from './rectify.js';
+import { insetQuad } from './makeBag.js';
+import { bulge, clampAspect } from './bag3d.js';
+
+test('homography maps each corner onto its target (even for a perspective trapezoid)', () => {
+  const from = [
+    [0, 0],
+    [400, 0],
+    [400, 500],
+    [0, 500],
+  ];
+  const to = [
+    [228, 322],
+    [1395, 335],
+    [1490, 1790],
+    [12, 1770],
+  ]; // a bag photographed from below
+  const H = homography(from, to);
+  from.forEach((p, i) => {
+    const [x, y] = applyHomography(H, p[0], p[1]);
+    assert.ok(Math.abs(x - to[i][0]) < 1e-6 && Math.abs(y - to[i][1]) < 1e-6, `corner ${i}`);
+  });
+  // the centre of the flat panel lands inside the quad, not at the plain average (perspective foreshortening)
+  const [cx, cy] = applyHomography(H, 200, 250);
+  assert.ok(cx > 300 && cx < 1200 && cy > 600 && cy < 1500);
+});
+
+test('homography rejects collinear corners', () => {
+  assert.equal(
+    homography(
+      [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ],
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ],
+    ),
+    null,
+  );
+});
+
+test('quadAspect is width/height of the panel', () => {
+  assert.equal(
+    quadAspect([
+      [0, 0],
+      [200, 0],
+      [200, 100],
+      [0, 100],
+    ]),
+    2,
+  );
+  assert.ok(
+    Math.abs(
+      quadAspect([
+        [10, 0],
+        [190, 0],
+        [200, 100],
+        [0, 100],
+      ]) - 1.9,
+    ) < 0.01,
+  );
+});
+
+test('warp with the identity reproduces the source pixels', () => {
+  global.ImageData ||= class {
+    constructor(data, width, height) {
+      Object.assign(this, { data, width, height });
     }
-  }
+  };
+  const w = 4;
+  const h = 3;
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) data.set([i * 20, 255 - i * 10, 7, 255], i * 4);
+  const out = warp({ data, width: w, height: h }, [1, 0, 0, 0, 1, 0, 0, 0, 1], w, h);
+  for (let i = 0; i < data.length; i++)
+    assert.ok(Math.abs(out.data[i] - data[i]) <= 1, `byte ${i}`);
+});
+
+test('insetQuad pulls every corner towards the centre and keeps the shape', () => {
+  const q = {
+    tl: { x: 0.1, y: 0.1 },
+    tr: { x: 0.9, y: 0.1 },
+    br: { x: 0.9, y: 0.9 },
+    bl: { x: 0.1, y: 0.9 },
+  };
+  const r = insetQuad(q, 0.05);
+  assert.ok(r.tl.x > 0.1 && r.tl.y > 0.1 && r.br.x < 0.9 && r.br.y < 0.9);
+  assert.ok(Math.abs(r.tr.x - r.tl.x - (r.br.x - r.bl.x)) < 1e-9);
+});
+
+test('pouch bulge: sealed at the sides and the top, full in the middle, footprint at the base', () => {
+  assert.ok(bulge(0, 0.5) < 1e-9 && bulge(1, 0.5) < 1e-9, 'side seals');
+  assert.ok(bulge(0.5, 1) < 1e-9 && bulge(0.5, 0.97) < 1e-9, 'flat heat seal');
+  assert.ok(bulge(0.5, 0.5) > 0.9, 'fullest in the middle');
+  assert.ok(bulge(0.5, 0) > 0.3 && bulge(0.5, 0) < bulge(0.5, 0.5), 'stands on a base');
+  for (let u = 0; u <= 1; u += 0.1)
+    for (let v = 0; v <= 1; v += 0.1) assert.ok(bulge(u, v) >= 0 && bulge(u, v) < 1.2);
+});
+
+test('clampAspect keeps bags plausible', () => {
+  assert.equal(clampAspect(0.82), 0.82);
+  assert.equal(clampAspect(0.2), 0.55);
+  assert.equal(clampAspect(3), 1);
+  assert.equal(clampAspect(NaN), 0.75);
+});
+
+// ---------------------------------------------------------------- AI illustration trimming + request plumbing
+import { alphaBounds } from './art.js';
+import { renderEndpoint } from './renderClient.js';
+
+test('alphaBounds trims to the bag and ignores stray faint pixels', () => {
+  const w = 100;
+  const h = 100;
+  const a = new Uint8ClampedArray(w * h);
+  for (let y = 20; y < 80; y++) for (let x = 30; x < 70; x++) a[y * w + x] = 255;
+  a[2 * w + 2] = 10; // faint speck below the threshold
+  assert.deepEqual(alphaBounds(a, w, h), { x: 30, y: 20, w: 40, h: 60 });
+});
+
+test('alphaBounds returns null for an empty or near-empty image', () => {
+  assert.equal(alphaBounds(new Uint8ClampedArray(100 * 100), 100, 100), null);
+  const a = new Uint8ClampedArray(100 * 100);
+  a[5050] = 255;
+  assert.equal(alphaBounds(a, 100, 100), null);
+});
+
+test('renderEndpoint is the /render sibling of the scan URL', () => {
+  assert.equal(
+    renderEndpoint({ endpoint: 'https://x.workers.dev/scan' }),
+    'https://x.workers.dev/render',
+  );
+  assert.equal(
+    renderEndpoint({ endpoint: 'https://x.workers.dev/scan/' }),
+    'https://x.workers.dev/render',
+  );
+  assert.equal(renderEndpoint({}), '');
+});
+
+// ---------------------------------------------------------------- scanner "Test connection"
+import { sanitizeToken, statusUrl, testScanner } from './scannerTest.js';
+
+test('sanitizeToken strips the .env prefix, quotes and spaces people paste', () => {
+  assert.equal(sanitizeToken('  abc123 '), 'abc123');
+  assert.equal(sanitizeToken('SCANNER_TOKEN=abc123'), 'abc123');
+  assert.equal(sanitizeToken('scanner_token = abc123'), 'abc123');
+  assert.equal(sanitizeToken('"abc123"'), 'abc123');
+  assert.equal(sanitizeToken("SCANNER_TOKEN='abc123'\n"), 'abc123');
+  assert.equal(sanitizeToken(undefined), '');
+});
+
+test('statusUrl points at the scanner root', () => {
+  assert.equal(statusUrl('http://localhost:8790/scan'), 'http://localhost:8790/');
+  assert.equal(statusUrl('https://x.workers.dev/scan/'), 'https://x.workers.dev/');
+});
+
+const reply = (status, body = {}) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  json: async () => body,
+});
+const fake = routes => async (url, init) => routes(url, init);
+
+test('testScanner: unreachable, missing key, bad token, good token', async () => {
+  const cfg = { endpoint: 'http://localhost:8790/scan', token: 'tok' };
+  let lines = await testScanner(
+    cfg,
+    fake(() => {
+      throw new Error('Failed to fetch');
+    }),
+  );
+  assert.equal(lines.length, 1);
+  assert.match(lines[0].text, /Can't reach the scanner/);
+  assert.equal(lines[0].ok, false);
+
+  lines = await testScanner(
+    cfg,
+    fake((url, init) => (init ? reply(400) : reply(200, { openaiKeySet: false }))),
+  );
+  assert.ok(lines.some(l => !l.ok && /no OPENAI_API_KEY/.test(l.text)));
+  assert.ok(lines.some(l => l.ok && /Token accepted/.test(l.text)));
+
+  lines = await testScanner(
+    cfg,
+    fake((url, init) => (init ? reply(401) : reply(200, { openaiKeySet: true }))),
+  );
+  assert.ok(lines.some(l => !l.ok && /Token rejected.*3 characters/.test(l.text)));
+
+  lines = await testScanner(
+    cfg,
+    fake((url, init) => (init ? reply(400) : reply(200, { openaiKeySet: true }))),
+  );
+  assert.ok(
+    lines.every(l => l.ok),
+    JSON.stringify(lines),
+  );
+  assert.equal(lines.length, 3);
+
+  assert.match((await testScanner({ endpoint: '', token: 'x' }))[0].text, /Enter the scanner URL/);
+  assert.ok(
+    (
+      await testScanner(
+        { endpoint: cfg.endpoint, token: '' },
+        fake(() => reply(200, { openaiKeySet: true })),
+      )
+    ).some(l => /No token/.test(l.text)),
+  );
 });

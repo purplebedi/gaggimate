@@ -9,7 +9,16 @@ const TEXT_FIELDS = [
   ['varietal', 'Varietal'],
 ];
 
-export function BeanForm({ initial, notice, onSave, onCancel, cancelLabel = 'Cancel' }) {
+export function BeanForm({
+  initial,
+  notice,
+  onSave,
+  onCancel,
+  cancelLabel = 'Cancel',
+  hideFinish = false,
+  saveDisabled = false,
+  saveHint = '',
+}) {
   const [bean, setBean] = useState({ ...EMPTY_BEAN, ...initial });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -72,6 +81,20 @@ export function BeanForm({ initial, notice, onSave, onCancel, cancelLabel = 'Can
             ))}
           </select>
         </label>
+        {!hideFinish && (
+          <label className='form-control'>
+            <span className='mb-1 block text-sm font-medium'>Bag finish</span>
+            <select
+              className='select select-bordered w-full'
+              value={bean.finish || 'matte'}
+              onChange={e => set('finish', e.currentTarget.value)}
+            >
+              <option value='matte'>Matte</option>
+              <option value='glossy'>Glossy</option>
+              <option value='kraft'>Kraft paper</option>
+            </select>
+          </label>
+        )}
         <label className='form-control'>
           <span className='mb-1 block text-sm font-medium'>Roast date</span>
           <input
@@ -103,8 +126,12 @@ export function BeanForm({ initial, notice, onSave, onCancel, cancelLabel = 'Can
         <button type='button' className='btn btn-ghost' onClick={onCancel} disabled={saving}>
           {cancelLabel}
         </button>
-        <button type='submit' className='btn btn-primary' disabled={saving || !bean.name.trim()}>
-          {saving ? 'Saving…' : 'Save bean'}
+        <button
+          type='submit'
+          className='btn btn-primary'
+          disabled={saving || saveDisabled || !bean.name.trim()}
+        >
+          {saving ? 'Saving…' : saveHint || 'Save bean'}
         </button>
       </div>
     </form>

@@ -536,6 +536,13 @@ void AsyncWebServer::dispatch(Conn &c, AsyncWebServerRequest &req) {
     std::string path(req._url.c_str());
     for (auto &r : _routes) {
         if ((r.method == HTTP_ANY || (r.method & req._method)) && r.uri == path) {
+            if (r.bodyHandler && !req._body.empty()) {
+                // like the real library: hand the body over in chunks (index/total), then run the request handler
+                const size_t total = req._body.size();
+                constexpr size_t CHUNK = 1436; // roughly one TCP segment
+                for (size_t off = 0; off < total; off += CHUNK)
+                    r.bodyHandler(&req, (uint8_t *)req._body.data() + off, std::min(CHUNK, total - off), off, total);
+            }
             r.handler(&req);
             return;
         }

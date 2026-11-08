@@ -17,7 +17,7 @@ constexpr size_t MAX_COVER_BYTES = 64 * 1024;
  * notes JSON (/h/{id}.json), which the notes API round-trips verbatim.
  *
  * Storage: /beans.json — { "activeBeanId": "...", "beans": [ { ... }, ... ] }
- * Cover photos: /b/<beanId>.jpg (optional, one small JPEG per bean)
+ * Bag textures: /b/<beanId>.jpg (front) and /b/<beanId>-b.jpg (back), optional small JPEGs
  * Bean records are created by the web UI (it generates id/createdAt) and are
  * stored as-is, mirroring how shot notes are persisted.
  */
@@ -32,8 +32,9 @@ class BeansPlugin : public Plugin {
 
     /**
      * Registers cover-photo routes on the web server:
-     *   GET  /api/beans/photo/<beanId>.jpg   (static, from /b/)
-     *   POST /api/beans/photo?id=<beanId>    (raw JPEG body)
+     *   GET  /api/beans/photo/<beanId>.jpg    front texture (static, from /b/)
+     *   GET  /api/beans/photo/<beanId>-b.jpg  back texture
+     *   POST /api/beans/photo?id=<beanId>&side=front|back   (raw JPEG body)
      * `photoFs` must be the same filesystem the shot history uses.
      */
     void registerRoutes(AsyncWebServer &server, FS *photoFs);

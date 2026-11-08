@@ -1,6 +1,7 @@
 #include "BeansPlugin.h"
 
 #include <SD_MMC.h>
+#include <esp32-hal-psram.h>
 #include <display/core/Controller.h>
 #include <display/core/PluginManager.h>
 #include <display/plugins/ShotHistoryPlugin.h>
@@ -84,7 +85,8 @@ size_t BeansPlugin::photoFreeSpace() {
 
 void BeansPlugin::removePhoto(const String &beanId) {
     if (validBeanId(beanId)) {
-        photoFs->remove("/b/" + beanId + ".jpg");
+        photoFs->remove("/b/" + beanId + ".jpg");   // front texture
+        photoFs->remove("/b/" + beanId + "-b.jpg"); // back texture
     }
 }
 
@@ -146,7 +148,7 @@ void BeansPlugin::registerRoutes(AsyncWebServer &server, FS *fsForPhotos) {
             }
             String id = request->arg("id");
             photoFs->mkdir("/b");
-            String tmp = "/b/" + id + ".tmp";
+            String tmp = "/b/" + id + (request->arg("side") == "back" ? "-b.tmp" : ".tmp");
             File file = photoFs->open(tmp, FILE_WRITE);
             if (!file) {
                 upload->status = 400;
@@ -159,9 +161,10 @@ void BeansPlugin::registerRoutes(AsyncWebServer &server, FS *fsForPhotos) {
                 upload->status = 507;
                 return;
             }
-            String finalPath = "/b/" + id + ".jpg";
+            // side=back stores the back-of-bag texture next to the front one; anything else is the front.
+            String finalPath = request->arg("side") == "back" ? "/b/" + id + "-b.jpg" : "/b/" + id + ".jpg";
             photoFs->remove(finalPath);
-            upload->status = photoFs->rename(tmp, finalPath) ? 200 : 400;
+            upload->status = photoFs->rename(tmp.c_str(), finalPath.c_str()) ? 200 : 400;
         });
 }
 

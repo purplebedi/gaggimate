@@ -5,13 +5,13 @@ import { faPlus } from '@fortawesome/free-solid-svg-icons/faPlus';
 import { faGear } from '@fortawesome/free-solid-svg-icons/faGear';
 import { ApiServiceContext, machine } from '../../services/ApiService.js';
 import {
-  coverUrl,
+  bagTextureUrl,
   deleteBean,
   getBeanStats,
   listBeans,
   saveBean,
   setActiveBean,
-  uploadCover,
+  uploadBagTexture,
 } from '../../services/BeanService.js';
 import PageLayout from '../../components/PageLayout.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
@@ -20,9 +20,9 @@ import { Spinner } from '../../components/Spinner.jsx';
 import { AddBean } from './AddBean.jsx';
 import { BeanForm } from './BeanForm.jsx';
 import { BeanDetail } from './BeanDetail.jsx';
-import { CoverEditor } from './CoverEditor.jsx';
+import { BagEditor } from './BagEditor.jsx';
 import { ScannerSettings } from './ScannerSettings.jsx';
-import { Shelf } from './Shelf.jsx';
+import { Shelf, webglSupported } from './Shelf.jsx';
 import { ShelfFilters } from './ShelfFilters.jsx';
 import {
   EMPTY_FILTERS,
@@ -38,6 +38,7 @@ const connected = computed(() => machine.value.connected);
 const VIEW_KEY = 'gaggimate.beansView';
 
 function readView() {
+  if (!webglSupported()) return 'list';
   try {
     return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'shelf';
   } catch {
@@ -148,6 +149,7 @@ export function Beans() {
     sort,
     stats,
   );
+  const shelfOk = webglSupported();
   const hasRatings = Object.values(stats).some(s => s.r > 0);
   const current = modal?.bean && state.beans.find(b => b.id === modal.bean.id);
 
@@ -221,6 +223,7 @@ export function Beans() {
             total={state.beans.length}
             view={view}
             setView={setView}
+            canShelf={shelfOk}
           />
 
           {visible.length === 0 ? (
@@ -238,7 +241,7 @@ export function Beans() {
                 </button>
               </div>
             </Card>
-          ) : view === 'shelf' ? (
+          ) : view === 'shelf' && shelfOk ? (
             <Shelf
               beans={visible}
               stats={stats}
@@ -257,7 +260,7 @@ export function Beans() {
                 const age = daysOffRoast(bean.roastDate);
                 const active = bean.id === state.activeBeanId;
                 const avg = statsFor(stats, bean.id).average;
-                const url = coverUrl(bean);
+                const url = bagTextureUrl(bean, 'front');
                 return (
                   <button
                     key={bean.id}
@@ -324,15 +327,33 @@ export function Beans() {
             onPickPhoto={() => fileRef.current?.click()}
             onRemovePhoto={removePhoto}
             onCancel={close}
-            onSave={async (bean, cover) => {
+            onSave={async (bean, built) => {
               const record = { ...bean };
-              if (cover) {
+              if (built) {
+                const failed = [];
                 try {
-                  await uploadCover(record.id, cover.blob);
-                  Object.assign(record, { hasPhoto: true, photoV: Date.now(), color: cover.color });
+                  await uploadBagTexture(record.id, built.front.blob, 'front');
+                  record.hasPhoto = true;
                 } catch (err) {
-                  setNotice(`Bean saved without its cover photo: ${err.message}.`);
+                  failed.push(err.message);
                 }
+                if (record.hasPhoto && built.back) {
+                  try {
+                    await uploadBagTexture(record.id, built.back.blob, 'back');
+                    record.hasBack = true;
+                  } catch (err) {
+                    failed.push(err.message);
+                  }
+                }
+                if (record.hasPhoto) record.photoV = Date.now();
+                else {
+                  delete record.ar;
+                  delete record.color;
+                }
+                if (failed.length)
+                  setNotice(
+                    `Bean saved, but part of the bag photo couldn't be stored: ${failed[0]}.`,
+                  );
               }
               const saved = await saveBean(apiService, record);
               if (!state.activeBeanId) await setActiveBean(apiService, saved.id);
@@ -346,8 +367,9 @@ export function Beans() {
         <Modal onClose={close} label='Edit bean'>
           <h2 className='mb-4 text-xl font-bold'>Edit bean</h2>
           <div className='mb-4'>
-            <CoverEditor
+            <BagEditor
               apiService={apiService}
+              scanner={state.scanner}
               bean={current}
               onChange={async partial => {
                 await saveBean(apiService, { ...current, ...partial });
@@ -359,8 +381,17 @@ export function Beans() {
             initial={current}
             onCancel={() => setModal({ type: 'detail', bean: current })}
             onSave={async form => {
-              // the cover editor saves its own fields immediately; never overwrite them with the form's stale copy
-              const { hasPhoto: _h, photoV: _v, color: _c, ...fields } = form;
+              // the bag editor saves its own fields immediately; never overwrite them with the form's stale copy
+              const {
+                hasPhoto: _h,
+                hasBack: _hb,
+                photoV: _v,
+                color: _c,
+                ar: _a,
+                artFront: _af,
+                artBack: _ab,
+                ...fields
+              } = form;
               await saveBean(apiService, { ...current, ...fields });
               await load();
               setModal({ type: 'detail', bean: current });
